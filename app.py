@@ -32,7 +32,7 @@ def render_tag_table(df, tag_col, title_prefix):
     pivot_df = df.groupby(['素材名称', tag_col])['渠道Cost'].sum().unstack(fill_value=0)
     pivot_df['总消耗'] = pivot_df.sum(axis=1)
     pivot_df['覆盖数量'] = (pivot_df.drop(columns=['总消耗']) > 0).sum(axis=1)
-    pivot_df['素材属性'] = pivot_df['覆盖数量'].apply(lambda x: "🌐 通用型 (多地/多渠道)" if x > 1 else "🎯 独占型 (单一特征)")
+    pivot_df['素材属性'] = pivot_df['覆盖数量'].apply(lambda x: "🌐 通用型 (多维吃量)" if x > 1 else "🎯 独占型 (单一特征)")
     display_df = pivot_df.sort_values('总消耗', ascending=False).reset_index()
     format_dict = {col: '${:,.2f}' for col in pivot_df.columns if col not in ['总消耗', '覆盖数量', '素材属性']}
     format_dict['总消耗'] = '${:,.2f}'
@@ -55,7 +55,12 @@ global_api_key = st.sidebar.text_input("🔑 输入 API Key (必需):", type="pa
 st.sidebar.divider()
 
 st.sidebar.header("📥 基础洞察数据上传")
-st.sidebar.markdown("（用于分地区、分渠道及联动分析）")
+st.sidebar.markdown("（用于分OS、地区、渠道及联动分析）")
+
+# 新增：OS 数据上传区
+st.sidebar.subheader("📱 OS 数据上传")
+os_ios_file = st.sidebar.file_uploader("上传 iOS 数据", type=['csv', 'xlsx'], key='os_ios')
+os_and_file = st.sidebar.file_uploader("上传 Android 数据", type=['csv', 'xlsx'], key='os_and')
 
 st.sidebar.subheader("🌍 地区数据上传")
 t1_file = st.sidebar.file_uploader("上传 T1 地区数据", type=['csv', 'xlsx'], key='t1')
@@ -92,17 +97,19 @@ def process_upload_slots(file_dict, tag_name):
         return combined_df
     return pd.DataFrame()
 
+df_os = process_upload_slots({'iOS': os_ios_file, 'Android': os_and_file}, 'OS')
 df_regions = process_upload_slots({'T1': t1_file, 'T2': t2_file, 'T3': t3_file, 'T4': t4_file, 'T5': t5_file}, 'Region')
 df_channels = process_upload_slots({'C1': c1_file, 'C2': c2_file, 'C3': c3_file, 'C4': c4_file, 'C5': c5_file}, 'Channel')
 
-# ----------------- 主界面分析展示 (重组后的 6 个 Tab) -----------------
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+# ----------------- 主界面分析展示 (扩充为 7 个 Tab) -----------------
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "⏳ 1. 接力健康度评估", 
-    "🌍 2. 分地区消耗分析", 
-    "🚀 3. 分渠道消耗分析", 
-    "⚔️ 4. 地区&渠道联动", 
-    "⭐ 5. WSP评级", 
-    "🎧 6. ASMR评级"
+    "📱 2. 分OS消耗分析",
+    "🌍 3. 分地区消耗分析", 
+    "🚀 4. 分渠道消耗分析", 
+    "⚔️ 5. 地区&渠道联动", 
+    "⭐ 6. WSP评级", 
+    "🎧 7. ASMR评级"
 ])
 
 # ==================== TAB 1: 接力健康度评估 ====================
@@ -174,7 +181,6 @@ with tab1:
                     直接给出专业的 UA 指导建议，使用清晰的 Markdown 和列表排版。"""
                     st.write_stream(stream_deepseek(prompt, global_api_key))
                     
-        # --- 恢复完整的图表区 ---
         st.divider()
         st.subheader("📈 大盘趋势：M1-M4 预算流向与同期群演变")
         cohort_spend = df_all.groupby(['Month_Clean', 'Cohort_Clean'])['渠道Cost'].sum().reset_index()
@@ -207,8 +213,44 @@ with tab1:
     else:
         st.info("👆 请上传全部 M1 - M4 数据以解锁 Cohort 评估及图表。")
 
-# ==================== TAB 2: 分地区消耗分析 ====================
+
+# ==================== TAB 2: 分 OS 消耗分析 (全新) ====================
 with tab2:
+    if not df_os.empty:
+        st.subheader("📱 不同类型广告素材的【分 OS】消耗全景")
+        type_os = df_os.groupby(['OS', '素材类型'])['渠道Cost'].sum().reset_index()
+        fig_to = px.bar(type_os, x='OS', y='渠道Cost', color='素材类型', barmode='group', text_auto='.2s', title="各 OS 的主力素材类型结构")
+        st.plotly_chart(fig_to, use_container_width=True)
+        
+        st.divider()
+        render_tag_table(df_os, 'OS', "多OS (双端)")
+        st.divider()
+        render_single_drilldown(df_os, 'OS', "OS")
+        st.divider()
+        
+        if st.button("🤖 召唤 DeepSeek 发掘 OS 端差异雷达", key="ai_tab_os"):
+            if not global_api_key: st.warning("请在左侧边栏配置 API Key")
+            else:
+                with st.spinner("AI 正在拉取苹果与安卓的差异表现..."):
+                    top_creatives = df_os.groupby('素材名称')['渠道Cost'].sum().nlargest(30).index
+                    pivot_os = df_os[df_os['素材名称'].isin(top_creatives)].groupby(['素材名称', 'OS'])['渠道Cost'].sum().unstack(fill_value=0)
+                    os_total = df_os.groupby('OS')['渠道Cost'].sum()
+                    pivot_os_pct = (pivot_os / os_total * 100).fillna(0).round(1).astype(str) + '%'
+                    os_combined = pivot_os.round(0).astype(int).astype(str) + " (" + pivot_os_pct + ")"
+                    
+                    prompt = f"""这是大盘 Top 30 素材在各 OS (iOS/Android) 的【消耗金额及大盘占比】数据表：\n{os_combined.to_markdown()}
+                    \n请帮我深度排查这批素材在不同 OS 之间的【消耗差异异常】。
+                    重点挑出 3-5 个**在某个 OS 消耗占比极高（爆款），但在另一个 OS 消耗占比极低（可能未上线/出价断档/用户不匹配）**的偏科素材。
+                    严格按照以下格式输出卡片：
+                    #### 🎬 [素材名称]
+                    * **📊 OS落差**：[说明哪个系统极高，哪个系统极低]
+                    * **💡 策略动作**：[提供针对性的排查漏传或排查系统受众差异的具体指令]"""
+                    st.write_stream(stream_deepseek(prompt, global_api_key))
+    else: st.info("👈 请在左侧上传 OS (iOS/Android) 数据")
+
+
+# ==================== TAB 3: 分地区消耗分析 ====================
+with tab3:
     if not df_regions.empty:
         st.subheader("🌍 不同类型广告素材的【分地区】消耗全景")
         type_reg = df_regions.groupby(['Region', '素材类型'])['渠道Cost'].sum().reset_index()
@@ -216,13 +258,12 @@ with tab2:
         st.plotly_chart(fig_tr, use_container_width=True)
         
         st.divider()
-        # 恢复被删掉的打标明细表和单区下钻图表
         render_tag_table(df_regions, 'Region', "多地区")
         st.divider()
         render_single_drilldown(df_regions, 'Region', "地区")
         st.divider()
         
-        if st.button("🤖 召唤 DeepSeek 发掘地区差异雷达", key="ai_tab2"):
+        if st.button("🤖 召唤 DeepSeek 发掘地区差异雷达", key="ai_tab_reg"):
             if not global_api_key: st.warning("请在左侧边栏配置 API Key")
             else:
                 with st.spinner("AI 正在拉取地区差异表现..."):
@@ -237,13 +278,13 @@ with tab2:
                     重点挑出 3-5 个**在某个地区消耗占比极高（爆款），但在另一个主流地区消耗占比极低（可能未上线/出价断档）**的偏科素材。
                     严格按照以下格式输出卡片：
                     #### 🎬 [素材名称]
-                    * **📊 区域落差**：[说明哪个区极高，哪个区为0]
+                    * **📊 区域落差**：[说明哪个区极高，哪个区极低]
                     * **💡 策略动作**：[提供针对性的排查漏传或调整出价的具体指令]"""
                     st.write_stream(stream_deepseek(prompt, global_api_key))
     else: st.info("👈 请在左侧上传地区数据")
 
-# ==================== TAB 3: 分渠道消耗分析 ====================
-with tab3:
+# ==================== TAB 4: 分渠道消耗分析 ====================
+with tab4:
     if not df_channels.empty:
         st.subheader("🚀 不同类型广告素材的【分渠道】消耗全景")
         type_chn = df_channels.groupby(['Channel', '素材类型'])['渠道Cost'].sum().reset_index()
@@ -251,13 +292,12 @@ with tab3:
         st.plotly_chart(fig_tc, use_container_width=True)
 
         st.divider()
-        # 恢复被删掉的打标明细表和单渠道下钻图表
         render_tag_table(df_channels, 'Channel', "多渠道")
         st.divider()
         render_single_drilldown(df_channels, 'Channel', "渠道")
         st.divider()
 
-        if st.button("🤖 召唤 DeepSeek 发掘渠道差异雷达", key="ai_tab3"):
+        if st.button("🤖 召唤 DeepSeek 发掘渠道差异雷达", key="ai_tab_chn"):
             if not global_api_key: st.warning("请在左侧边栏配置 API Key")
             else:
                 with st.spinner("AI 正在拉取渠道差异表现..."):
@@ -277,8 +317,8 @@ with tab3:
                     st.write_stream(stream_deepseek(prompt, global_api_key))
     else: st.info("👈 请在左侧上传渠道数据")
 
-# ==================== TAB 4: 地区&渠道联动分析 ====================
-with tab4:
+# ==================== TAB 5: 地区&渠道联动分析 ====================
+with tab5:
     if not df_regions.empty and not df_channels.empty:
         common_creatives = set(df_regions['素材名称']).intersection(set(df_channels['素材名称']))
         if common_creatives:
@@ -304,7 +344,6 @@ with tab4:
             st.dataframe(insight_df.sort_values('综合体量(Cost)', ascending=False).drop(columns=['jx', 'jy']).style.format({'综合体量(Cost)': '${:,.2f}'}), height=300)
             
             st.divider()
-            # 恢复被删掉的 360° 单素材比对饼图
             st.markdown("#### 🔍 单一素材 360° 画像下钻")
             sorted_commons = insight_df.sort_values('综合体量(Cost)', ascending=False)['素材名称'].tolist()
             selected_creative = st.selectbox("选择要深挖分布结构的特定素材：", sorted_commons)
@@ -344,8 +383,8 @@ def generate_funnel_ui(df_res, title_prefix):
     c4.metric("✅ 通过及以上", f"{pas}个 ({pas/tot*100:.1f}%)" if tot else "0个")
     st.dataframe(style_rating_df(df_res), use_container_width=True, height=250)
 
-# ==================== TAB 5: WSP 评级 ====================
-with tab5:
+# ==================== TAB 6: WSP 评级 ====================
+with tab6:
     st.markdown("### 📥 上传 WSP 评级专属数据源 (区分 iOS / Android)")
     col_w_i, col_w_a = st.columns(2)
     with col_w_i:
@@ -423,9 +462,10 @@ with tab5:
                     2. **冲击神坛股**：在评为“潜力素材”的名单里，找到各数据逼近“优秀”水槛（消耗差一点或ROAS差微弱百分比）的素材。
                     请直接列出 3-5 个最具跃升价值的素材名，指出它的优势数据，并给出（例如：大胆放宽受众定向、立刻大幅提价等）动作指令！"""
                     st.write_stream(stream_deepseek(prompt, global_api_key))
+    else: st.info("👆 请上传 WSP 数据源文件。")
 
-# ==================== TAB 6: ASMR 评级 ====================
-with tab6:
+# ==================== TAB 7: ASMR 评级 ====================
+with tab7:
     st.markdown("### 📥 上传 ASMR 评级专属数据源 (区分 iOS / Android)")
     col_a_i, col_a_a = st.columns(2)
     with col_a_i:
@@ -493,7 +533,8 @@ with tab6:
                 with st.spinner("正在呼叫 DeepSeek 挖掘 ASMR 隐形金矿..."):
                     prompt = f"""这是 ASMR 大盘各素材评级及详细(消耗、ROAS、留存)数据表：\n{df_all_asmr.to_markdown()}
                     \n作为顶尖优化师，请敏锐地找出可以被“人工干预保送”的潜力黑马：
-                    1. 挑出 2-3 个从 **“测试通过”极大概率跃迁至“潜力素材”** 的目标（例如 ROAS 或 留存 极高，但消耗卡在边缘）。
+                    1. 挑出 2-3 个从 **“测试通过”极大概率跃迁至“潜力素材”** 的目标（例如 ROAS 或 留存 极高，但消耗卡在两三百刀边缘）。
                     2. 挑出 2-3 个从 **“潜力素材”极大概率突破为“优秀爆款”** 的目标。
                     请用 Markdown 排版，指出其目前被卡住的原因（是消耗不够，还是某项比率差一丁点？），并要求 UA 人员对其放开预算或微调素材！"""
                     st.write_stream(stream_deepseek(prompt, global_api_key))
+    else: st.info("👆 请上传 ASMR 数据源文件。")
