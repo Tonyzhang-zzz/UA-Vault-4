@@ -30,13 +30,43 @@ def aggregate_cost(df, group_cols):
 def render_tag_table(df, tag_col, title_prefix):
     st.markdown(f"#### 🏷️ {title_prefix} 素材属性打标明细表")
     pivot_df = df.groupby(['素材名称', tag_col])['渠道Cost'].sum().unstack(fill_value=0)
-    pivot_df['总消耗'] = pivot_df.sum(axis=1)
-    pivot_df['覆盖数量'] = (pivot_df.drop(columns=['总消耗']) > 0).sum(axis=1)
+    
+    # 提取所有的维度标签（如 T1, T2 / C1, C2 / iOS, Android）
+    tag_columns = list(pivot_df.columns)
+    
+    pivot_df['总消耗'] = pivot_df[tag_columns].sum(axis=1)
+    pivot_df['覆盖数量'] = (pivot_df[tag_columns] > 0).sum(axis=1)
     pivot_df['素材属性'] = pivot_df['覆盖数量'].apply(lambda x: "🌐 通用型 (多维吃量)" if x > 1 else "🎯 独占型 (单一特征)")
+    
     display_df = pivot_df.sort_values('总消耗', ascending=False).reset_index()
-    format_dict = {col: '${:,.2f}' for col in pivot_df.columns if col not in ['总消耗', '覆盖数量', '素材属性']}
-    format_dict['总消耗'] = '${:,.2f}'
-    st.dataframe(display_df.style.format(format_dict), height=300)
+    
+    total_spend_global = display_df['总消耗'].sum()
+    display_df['全局占比'] = display_df['总消耗'] / total_spend_global if total_spend_global > 0 else 0
+
+    # 准备动态列顺序和格式化字典
+    final_cols = ['素材名称']
+    format_dict = {'总消耗': '${:,.2f}', '全局占比': '{:.2%}'}
+    
+    for col in tag_columns:
+        # 计算该维度的大盘总消耗
+        tag_total = display_df[col].sum()
+        pct_col_name = f"{col}占比"
+        
+        # 计算当前素材在该维度大盘中的占比 (Vertical Spend Share)
+        display_df[pct_col_name] = display_df[col] / tag_total if tag_total > 0 else 0
+        
+        # 将绝对值列和占比列成对加入展示
+        final_cols.extend([col, pct_col_name])
+        
+        # 设置数据格式
+        format_dict[col] = '${:,.2f}'
+        format_dict[pct_col_name] = '{:.2%}'
+        
+    # 加入尾部通用统计列
+    final_cols.extend(['总消耗', '全局占比', '覆盖数量', '素材属性'])
+    display_df = display_df[final_cols]
+    
+    st.dataframe(display_df.style.format(format_dict), height=400)
 
 def render_single_drilldown(df, tag_col, title_prefix):
     st.markdown(f"#### 🔍 查看单一{title_prefix}的主力消耗素材 (含素材类型)")
@@ -57,7 +87,6 @@ st.sidebar.divider()
 st.sidebar.header("📥 基础洞察数据上传")
 st.sidebar.markdown("（用于分OS、地区、渠道及联动分析）")
 
-# 新增：OS 数据上传区
 st.sidebar.subheader("📱 OS 数据上传")
 os_ios_file = st.sidebar.file_uploader("上传 iOS 数据", type=['csv', 'xlsx'], key='os_ios')
 os_and_file = st.sidebar.file_uploader("上传 Android 数据", type=['csv', 'xlsx'], key='os_and')
@@ -101,7 +130,7 @@ df_os = process_upload_slots({'iOS': os_ios_file, 'Android': os_and_file}, 'OS')
 df_regions = process_upload_slots({'T1': t1_file, 'T2': t2_file, 'T3': t3_file, 'T4': t4_file, 'T5': t5_file}, 'Region')
 df_channels = process_upload_slots({'C1': c1_file, 'C2': c2_file, 'C3': c3_file, 'C4': c4_file, 'C5': c5_file}, 'Channel')
 
-# ----------------- 主界面分析展示 (扩充为 7 个 Tab) -----------------
+# ----------------- 主界面分析展示 -----------------
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "⏳ 1. 接力健康度评估", 
     "📱 2. 分OS消耗分析",
@@ -214,7 +243,7 @@ with tab1:
         st.info("👆 请上传全部 M1 - M4 数据以解锁 Cohort 评估及图表。")
 
 
-# ==================== TAB 2: 分 OS 消耗分析 (全新) ====================
+# ==================== TAB 2: 分 OS 消耗分析 ====================
 with tab2:
     if not df_os.empty:
         st.subheader("📱 不同类型广告素材的【分 OS】消耗全景")
@@ -247,7 +276,6 @@ with tab2:
                     * **💡 策略动作**：[提供针对性的排查漏传或排查系统受众差异的具体指令]"""
                     st.write_stream(stream_deepseek(prompt, global_api_key))
     else: st.info("👈 请在左侧上传 OS (iOS/Android) 数据")
-
 
 # ==================== TAB 3: 分地区消耗分析 ====================
 with tab3:
@@ -537,4 +565,3 @@ with tab7:
                     2. 挑出 2-3 个从 **“潜力素材”极大概率突破为“优秀爆款”** 的目标。
                     请用 Markdown 排版，指出其目前被卡住的原因（是消耗不够，还是某项比率差一丁点？），并要求 UA 人员对其放开预算或微调素材！"""
                     st.write_stream(stream_deepseek(prompt, global_api_key))
-    else: st.info("👆 请上传 ASMR 数据源文件。")
