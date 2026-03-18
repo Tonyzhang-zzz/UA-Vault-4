@@ -42,6 +42,7 @@ def render_tag_table(df, tag_col, title_prefix):
     
     total_spend_global = display_df['总消耗'].sum()
     display_df['全局占比'] = display_df['总消耗'] / total_spend_global if total_spend_global > 0 else 0
+    display_df['全局排名'] = display_df['总消耗'].rank(ascending=False, method='min').astype(int)
 
     # 准备动态列顺序和格式化字典
     final_cols = ['素材名称']
@@ -51,19 +52,24 @@ def render_tag_table(df, tag_col, title_prefix):
         # 计算该维度的大盘总消耗
         tag_total = display_df[col].sum()
         pct_col_name = f"{col}占比"
+        rank_col_name = f"{col}排名"
         
         # 计算当前素材在该维度大盘中的占比 (Vertical Spend Share)
         display_df[pct_col_name] = display_df[col] / tag_total if tag_total > 0 else 0
         
-        # 将绝对值列和占比列成对加入展示
-        final_cols.extend([col, pct_col_name])
+        # 计算该维度的排名（过滤掉0消耗，显示为 '-'）
+        ranks = display_df[col].replace(0, np.nan).rank(ascending=False, method='min')
+        display_df[rank_col_name] = ranks.fillna(0).astype(int).astype(str).replace('0', '-')
+        
+        # 将绝对值列、占比列、排名列 三位一体加入展示
+        final_cols.extend([col, pct_col_name, rank_col_name])
         
         # 设置数据格式
         format_dict[col] = '${:,.2f}'
         format_dict[pct_col_name] = '{:.2%}'
         
     # 加入尾部通用统计列
-    final_cols.extend(['总消耗', '全局占比', '覆盖数量', '素材属性'])
+    final_cols.extend(['总消耗', '全局占比', '全局排名', '覆盖数量', '素材属性'])
     display_df = display_df[final_cols]
     
     st.dataframe(display_df.style.format(format_dict), height=400)
@@ -561,7 +567,8 @@ with tab7:
                 with st.spinner("正在呼叫 DeepSeek 挖掘 ASMR 隐形金矿..."):
                     prompt = f"""这是 ASMR 大盘各素材评级及详细(消耗、ROAS、留存)数据表：\n{df_all_asmr.to_markdown()}
                     \n作为顶尖优化师，请敏锐地找出可以被“人工干预保送”的潜力黑马：
-                    1. 挑出 2-3 个从 **“测试通过”极大概率跃迁至“潜力素材”** 的目标（例如 ROAS 或 留存 极高，但消耗卡在两三百刀边缘）。
+                    1. 挑出 2-3 个从 **“测试通过”极大概率跃迁至“潜力素材”** 的目标（例如 ROAS 或 留存 极高，但消耗卡在边缘）。
                     2. 挑出 2-3 个从 **“潜力素材”极大概率突破为“优秀爆款”** 的目标。
                     请用 Markdown 排版，指出其目前被卡住的原因（是消耗不够，还是某项比率差一丁点？），并要求 UA 人员对其放开预算或微调素材！"""
                     st.write_stream(stream_deepseek(prompt, global_api_key))
+    else: st.info("👆 请上传 ASMR 数据源文件。")
