@@ -29,9 +29,29 @@ def aggregate_cost(df, group_cols):
 
 def render_tag_table(df, tag_col, title_prefix):
     st.markdown(f"#### 🏷️ {title_prefix} 素材属性打标明细表")
-    pivot_df = df.groupby(['素材名称', tag_col])['渠道Cost'].sum().unstack(fill_value=0)
     
-    # 提取所有的维度标签（如 T1, T2 / C1, C2 / iOS, Android）
+    # 1. 提取可用的素材类型并添加多选框
+    available_types = df['素材类型'].unique().tolist()
+    selected_types = st.multiselect(
+        "🔽 筛选素材类型（可多选）：", 
+        options=available_types, 
+        default=available_types, 
+        key=f"filter_type_{tag_col}_{title_prefix}"
+    )
+    
+    if not selected_types:
+        st.warning("请至少选择一种素材类型以查看数据！")
+        return
+        
+    # 2. 根据用户选择过滤数据
+    filtered_df = df[df['素材类型'].isin(selected_types)]
+    
+    pivot_df = filtered_df.groupby(['素材名称', tag_col])['渠道Cost'].sum().unstack(fill_value=0)
+    if pivot_df.empty:
+        st.info("当前筛选条件下无数据。")
+        return
+    
+    # 3. 提取所有的维度标签（如 T1, T2 / C1, C2 / iOS, Android）
     tag_columns = list(pivot_df.columns)
     
     pivot_df['总消耗'] = pivot_df[tag_columns].sum(axis=1)
@@ -40,21 +60,25 @@ def render_tag_table(df, tag_col, title_prefix):
     
     display_df = pivot_df.sort_values('总消耗', ascending=False).reset_index()
     
+    # 将过滤后的【素材类型】映射到展示表中
+    type_mapping = filtered_df.drop_duplicates('素材名称').set_index('素材名称')['素材类型'].to_dict()
+    display_df['素材类型'] = display_df['素材名称'].map(type_mapping)
+    
     total_spend_global = display_df['总消耗'].sum()
     display_df['全局占比'] = display_df['总消耗'] / total_spend_global if total_spend_global > 0 else 0
     display_df['全局排名'] = display_df['总消耗'].rank(ascending=False, method='min').astype(int)
 
-    # 准备动态列顺序和格式化字典
-    final_cols = ['素材名称']
+    # 4. 准备动态列顺序和格式化字典
+    final_cols = ['素材名称', '素材类型']
     format_dict = {'总消耗': '${:,.2f}', '全局占比': '{:.2%}'}
     
     for col in tag_columns:
-        # 计算该维度的大盘总消耗
+        # 计算该维度的大盘总消耗（动态跟随筛选变化）
         tag_total = display_df[col].sum()
         pct_col_name = f"{col}占比"
         rank_col_name = f"{col}排名"
         
-        # 计算当前素材在该维度大盘中的占比 (Vertical Spend Share)
+        # 计算当前素材在该维度大盘中的占比
         display_df[pct_col_name] = display_df[col] / tag_total if tag_total > 0 else 0
         
         # 计算该维度的排名（过滤掉0消耗，显示为 '-'）
@@ -567,7 +591,7 @@ with tab7:
                 with st.spinner("正在呼叫 DeepSeek 挖掘 ASMR 隐形金矿..."):
                     prompt = f"""这是 ASMR 大盘各素材评级及详细(消耗、ROAS、留存)数据表：\n{df_all_asmr.to_markdown()}
                     \n作为顶尖优化师，请敏锐地找出可以被“人工干预保送”的潜力黑马：
-                    1. 挑出 2-3 个从 **“测试通过”极大概率跃迁至“潜力素材”** 的目标（例如 ROAS 或 留存 极高，但消耗卡在边缘）。
+                    1. 挑出 2-3 个从 **“测试通过”极大概率跃迁至“潜力素材”** 的目标（例如 ROAS 或 留存 极高，但消耗卡在两三百刀边缘）。
                     2. 挑出 2-3 个从 **“潜力素材”极大概率突破为“优秀爆款”** 的目标。
                     请用 Markdown 排版，指出其目前被卡住的原因（是消耗不够，还是某项比率差一丁点？），并要求 UA 人员对其放开预算或微调素材！"""
                     st.write_stream(stream_deepseek(prompt, global_api_key))
