@@ -422,7 +422,7 @@ def read_rating_files(files):
     return pd.concat(df_list, ignore_index=True).dropna(subset=['素材名称']) if df_list else pd.DataFrame()
 
 def style_rating_df(df):
-    return df.style.format({'消耗(Cost)': '${:,.2f}', '7日ROAS': '{:.2%}', '1日留存': '{:.2%}'}).applymap(
+    return df.style.format({'消耗(Cost)': '${:,.2f}', '7日ROAS': '{:.2%}', '1日留存': '{:.2%}'}).map(
         lambda x: 'background-color: #d4edda; font-weight: bold' if '优秀' in str(x) else 
                   ('background-color: #fff3cd; font-weight: bold' if '潜力' in str(x) else 
                   ('background-color: #cce5ff; font-weight: bold' if '通过' in str(x) else '')), subset=['评级结果'])
@@ -591,7 +591,7 @@ with tab7:
                 with st.spinner("正在呼叫 DeepSeek 挖掘 ASMR 隐形金矿..."):
                     prompt = f"""这是 ASMR 大盘各素材评级及详细(消耗、ROAS、留存)数据表：\n{df_all_asmr.to_markdown()}
                     \n作为顶尖优化师，请敏锐地找出可以被“人工干预保送”的潜力黑马：
-                    1. 挑出 2-3 个从 **“测试通过”极大概率跃迁至“潜力素材”** 的目标（例如 ROAS 或 留存 极高，但消耗卡在两三百刀边缘）。
+                    1. 挑出 2-3 个从 **“测试通过”极大概率跃迁至“潜力素材”** 的目标（例如 ROAS 或 留存 极高，但消耗卡在边缘）。
                     2. 挑出 2-3 个从 **“潜力素材”极大概率突破为“优秀爆款”** 的目标。
                     请用 Markdown 排版，指出其目前被卡住的原因（是消耗不够，还是某项比率差一丁点？），并要求 UA 人员对其放开预算或微调素材！"""
                     st.write_stream(stream_deepseek(prompt, global_api_key))
