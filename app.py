@@ -51,7 +51,7 @@ def render_tag_table(df, tag_col, title_prefix):
         st.info("当前筛选条件下无数据。")
         return
     
-    # 3. 提取所有的维度标签（如 T1, T2 / C1, C2 / iOS, Android）
+    # 3. 提取所有的维度标签（如 T1, T2 / C1, C2 / iOS, Android / 周期1, 周期2）
     tag_columns = list(pivot_df.columns)
     
     pivot_df['总消耗'] = pivot_df[tag_columns].sum(axis=1)
@@ -115,7 +115,12 @@ global_api_key = st.sidebar.text_input("🔑 输入 API Key (必需):", type="pa
 st.sidebar.divider()
 
 st.sidebar.header("📥 基础洞察数据上传")
-st.sidebar.markdown("（用于分OS、地区、渠道及联动分析）")
+st.sidebar.markdown("（用于OS、地区、渠道、周期及联动分析）")
+
+st.sidebar.subheader("📅 周期数据上传 (支持3个阶段对比)")
+p1_file = st.sidebar.file_uploader("上传 周期 1 数据", type=['csv', 'xlsx'], key='p1')
+p2_file = st.sidebar.file_uploader("上传 周期 2 数据", type=['csv', 'xlsx'], key='p2')
+p3_file = st.sidebar.file_uploader("上传 周期 3 数据", type=['csv', 'xlsx'], key='p3')
 
 st.sidebar.subheader("📱 OS 数据上传")
 os_ios_file = st.sidebar.file_uploader("上传 iOS 数据", type=['csv', 'xlsx'], key='os_ios')
@@ -156,19 +161,21 @@ def process_upload_slots(file_dict, tag_name):
         return combined_df
     return pd.DataFrame()
 
+df_periods = process_upload_slots({'1_周期1': p1_file, '2_周期2': p2_file, '3_周期3': p3_file}, 'Period')
 df_os = process_upload_slots({'iOS': os_ios_file, 'Android': os_and_file}, 'OS')
 df_regions = process_upload_slots({'T1': t1_file, 'T2': t2_file, 'T3': t3_file, 'T4': t4_file, 'T5': t5_file}, 'Region')
 df_channels = process_upload_slots({'C1': c1_file, 'C2': c2_file, 'C3': c3_file, 'C4': c4_file, 'C5': c5_file}, 'Channel')
 
 # ----------------- 主界面分析展示 -----------------
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "⏳ 1. 接力健康度评估", 
     "📱 2. 分OS消耗分析",
     "🌍 3. 分地区消耗分析", 
     "🚀 4. 分渠道消耗分析", 
     "⚔️ 5. 地区&渠道联动", 
-    "⭐ 6. WSP评级", 
-    "🎧 7. ASMR评级"
+    "📅 6. 分周期素材对比",
+    "⭐ 7. WSP评级", 
+    "🎧 8. ASMR评级"
 ])
 
 # ==================== TAB 1: 接力健康度评估 ====================
@@ -416,6 +423,42 @@ with tab5:
         else: st.warning("您上传的地区表和渠道表之间，没有发现同名的素材。")
     else: st.info("👈 请上传地区和渠道数据解锁跨维联动。")
 
+# ==================== TAB 6: 分周期素材对比 ====================
+with tab6:
+    if not df_periods.empty:
+        st.subheader("📅 不同类型广告素材的【分周期】消耗全景")
+        type_per = df_periods.groupby(['Period', '素材类型'])['渠道Cost'].sum().reset_index()
+        fig_tp = px.bar(type_per, x='Period', y='渠道Cost', color='素材类型', barmode='group', text_auto='.2s', title="各周期的主力素材类型消耗变迁")
+        st.plotly_chart(fig_tp, use_container_width=True)
+        
+        st.divider()
+        render_tag_table(df_periods, 'Period', "多周期")
+        st.divider()
+        render_single_drilldown(df_periods, 'Period', "周期")
+        st.divider()
+        
+        if st.button("🤖 召唤 DeepSeek 发掘周期演变雷达", key="ai_tab_per"):
+            if not global_api_key: st.warning("请在左侧边栏配置 API Key")
+            else:
+                with st.spinner("AI 正在拉取素材的周期起伏表现..."):
+                    top_creatives = df_periods.groupby('素材名称')['渠道Cost'].sum().nlargest(30).index
+                    pivot_per = df_periods[df_periods['素材名称'].isin(top_creatives)].groupby(['素材名称', 'Period'])['渠道Cost'].sum().unstack(fill_value=0)
+                    per_total = df_periods.groupby('Period')['渠道Cost'].sum()
+                    pivot_per_pct = (pivot_per / per_total * 100).fillna(0).round(1).astype(str) + '%'
+                    per_combined = pivot_per.round(0).astype(int).astype(str) + " (" + pivot_per_pct + ")"
+                    
+                    prompt = f"""这是大盘 Top 30 素材在 3 个不同周期 (如 周期1/2/3 或 周次) 的【消耗金额及大盘占比】数据表：\n{per_combined.to_markdown()}
+                    \n请帮我深度排查这批素材在时间线上的【生命周期与起量/掉量异常】。
+                    重点挑出：
+                    1. **强势起量股（2-3个）**：占比连续上升，处于爆发期。
+                    2. **严重衰退股（2-3个）**：占比连续下降或断崖式下跌，亟需止损或翻新。
+                    严格按照以下格式输出卡片：
+                    #### 🎬 [素材名称]
+                    * **📈/📉 趋势表现**：[说明哪个周期高，哪个周期低]
+                    * **💡 策略动作**：[提供针对性的放大预算、或停投翻新的指令]"""
+                    st.write_stream(stream_deepseek(prompt, global_api_key))
+    else: st.info("👈 请在左侧上传周期(Period)数据源")
+
 # ================== 通用数据准备函数 (评级模块) ==================
 def read_rating_files(files):
     df_list = [pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f) for f in files]
@@ -441,8 +484,8 @@ def generate_funnel_ui(df_res, title_prefix):
     c4.metric("✅ 通过及以上", f"{pas}个 ({pas/tot*100:.1f}%)" if tot else "0个")
     st.dataframe(style_rating_df(df_res), use_container_width=True, height=250)
 
-# ==================== TAB 6: WSP 评级 ====================
-with tab6:
+# ==================== TAB 7: WSP 评级 ====================
+with tab7:
     st.markdown("### 📥 上传 WSP 评级专属数据源 (区分 iOS / Android)")
     col_w_i, col_w_a = st.columns(2)
     with col_w_i:
@@ -522,8 +565,8 @@ with tab6:
                     st.write_stream(stream_deepseek(prompt, global_api_key))
     else: st.info("👆 请上传 WSP 数据源文件。")
 
-# ==================== TAB 7: ASMR 评级 ====================
-with tab7:
+# ==================== TAB 8: ASMR 评级 ====================
+with tab8:
     st.markdown("### 📥 上传 ASMR 评级专属数据源 (区分 iOS / Android)")
     col_a_i, col_a_a = st.columns(2)
     with col_a_i:
