@@ -508,6 +508,7 @@ with tab7:
                 agg_g = df_g_flt.groupby('素材名称', as_index=False).agg({'渠道Cost': 'sum'})
                 for _, r in agg_g.iterrows():
                     c = r['渠道Cost']
+                    if c <= 0: continue
                     rating = '🌟 优秀素材' if c > 3000 else ('🔥 潜力素材' if c > 2000 else ('✅ 通过素材' if c > 500 else '❌ 未达标'))
                     res.append({'素材名称': r['素材名称'], '渠道': '谷歌', '评级结果': rating, '消耗(Cost)': c, '7日ROAS': 0, '1日留存': 0})
                     
@@ -527,6 +528,7 @@ with tab7:
                     
                     for _, r in agg_ng.iterrows():
                         c, roas, ret = r['渠道Cost'], r['7日ROAS'], r['1日留存']
+                        if c <= 0: continue
                         rating = '❌ 未达标'
                         if c > 2000 and roas > exc_thres: rating = '🌟 优秀素材'
                         elif ret > 0.22:
@@ -588,6 +590,7 @@ with tab8:
                 agg_g = df_g.groupby('素材名称', as_index=False).agg({'渠道Cost': 'sum'})
                 for _, r in agg_g.iterrows():
                     c = r['渠道Cost']
+                    if c <= 0: continue
                     rating = '🌟 优秀素材' if c > 500 else ('🔥 潜力素材' if c > 200 else ('✅ 测试通过' if c > 50 else '❌ 未达标'))
                     res.append({'素材名称': r['素材名称'], '渠道': '谷歌', '评级结果': rating, '消耗(Cost)': c, '7日ROAS': 0, '1日留存': 0})
                     
@@ -602,6 +605,7 @@ with tab8:
                 
                 for _, r in agg_ng.iterrows():
                     c, roas, ret = r['渠道Cost'], r['7日ROAS'], r['1日留存']
+                    if c <= 0: continue
                     rating = '❌ 未达标'
                     if os_name == 'iOS':
                         if c > 1000 and roas > 0.35: rating = '🌟 优秀素材'
